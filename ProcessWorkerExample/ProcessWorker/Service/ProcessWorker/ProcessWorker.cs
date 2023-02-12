@@ -54,6 +54,8 @@ namespace ProcessWorker.Service
 
                     toolbox.Progress.Report(ProcessStatus.Canceled);
                     toolbox.TaskCompletionSrc.TrySetResult();
+                    
+                    _workItemToolbox.TryRemove(processId, out var _);
                 }
             }
             else if (toolbox.State.Status is ProcessStatus.Running)
