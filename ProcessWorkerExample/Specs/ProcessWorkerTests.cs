@@ -10,7 +10,8 @@ namespace Specs
     public class ProcessWorkerTests
     {
         private readonly ILogger _logger;
-        private readonly IProcessWorker _processWorker;
+        private readonly IProcessWorker _processWorkerST;
+        private readonly IProcessWorker _processWorkerMT;
 
         private IContainer Container { get; }
 
@@ -23,7 +24,14 @@ namespace Specs
             var processWorkerProvider = Container.Resolve<IProcessWorkerProvider>();
 
             _logger = Container.Resolve<ILogger>();
-            _processWorker = processWorkerProvider.GetOrCreate("ProcessWorkerTest", new ProcessWorkerConfiguration
+
+            _processWorkerST = processWorkerProvider.GetOrCreate("ProcessWorkerTest_Sync", new ProcessWorkerConfiguration
+            {
+                TimerIntervalMs = 1_000,
+                Concurrency = 1
+            });
+
+            _processWorkerMT = processWorkerProvider.GetOrCreate("ProcessWorkerTest_Async", new ProcessWorkerConfiguration
             {
                 TimerIntervalMs = 1_000,
                 Concurrency = 3
@@ -38,14 +46,16 @@ namespace Specs
 
             _logger.Information($"Start {nameof(SumFirstNIntegers)} with {nameof(numOfIntegers)} set to {numOfIntegers}.");
 
-            var sumIntegers = await SumFirstNIntegers(numOfIntegers);
+            var sumIntegersMtTest = await SumFirstNIntegers(numOfIntegers, useParallel: true);
+            var sumIntegersStTest = await SumFirstNIntegers(numOfIntegers, useParallel: false);
 
             _logger.Information($"End {nameof(SumFirstNIntegers)}");
 
-            sumIntegers.Should().Be(expectedResult);
+            sumIntegersMtTest.Should().Be(expectedResult);
+            sumIntegersStTest.Should().Be(expectedResult);
         }
 
-        private async Task<int> SumFirstNIntegers(int numOfIntegers)
+        private async Task<int> SumFirstNIntegers(int numOfIntegers, bool useParallel)
         {
             var taskList = new List<Task>();
 
@@ -72,7 +82,7 @@ namespace Specs
                     });
                 };
 
-                var info = _processWorker.EnqueueWorkItem(async (cancelToken) =>
+                var info = (useParallel ? _processWorkerMT : _processWorkerST).EnqueueWorkItem(async (cancelToken) =>
                 {
                     await Task.Yield();
 
