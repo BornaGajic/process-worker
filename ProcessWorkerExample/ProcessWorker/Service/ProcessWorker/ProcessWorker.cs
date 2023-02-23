@@ -102,14 +102,7 @@ namespace ProcessWorker.Service
                 ProcessInfo = processInfo,
                 Process = async () =>
                 {
-                    try
-                    {
-                        await process(cancelTokenSource.Token);
-                    }
-                    finally
-                    {
-                        taskCompletionSrc.SetResult();
-                    }
+                    await process(cancelTokenSource.Token);
                 }
             };
 
@@ -210,6 +203,7 @@ namespace ProcessWorker.Service
                     }
                     finally
                     {
+                        workItemToolbox.TaskCompletionSrc.TrySetResult();
                         _workItemToolbox.TryRemove(processMetadata.ProcessInfo.ProcessId, out var _);
                     }
                 }
