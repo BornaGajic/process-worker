@@ -1,13 +1,12 @@
 ﻿using Autofac;
 
-namespace Specs
+namespace ProcessWorkerV2
 {
     public class DIModule : Module
     {
         protected override void Load(ContainerBuilder builder)
         {
-            builder.RegisterModule<ProcessWorker.DIModule>();
-            builder.RegisterModule<ProcessWorkerV2.DIModule>();
+            builder.RegisterType<ProcessWorkerProvider>().As<IProcessWorkerProvider>().SingleInstance();
         }
     }
 }
