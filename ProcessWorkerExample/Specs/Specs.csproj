@@ -23,6 +23,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\ProcessWorkerV2\ProcessWorkerV2.csproj" />
     <ProjectReference Include="..\ProcessWorker\ProcessWorker.csproj" />
   </ItemGroup>
 
