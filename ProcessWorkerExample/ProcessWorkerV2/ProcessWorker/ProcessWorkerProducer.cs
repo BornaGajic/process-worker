@@ -16,9 +16,9 @@ namespace ProcessWorkerV2
 
         public void CancelWorkItemAsync(Guid processId, int? millisecondsDelay = null)
         {
-            if (_workItems.TryGetValue(processId, out var workItem))
+            if (_workItems.TryGetValue(processId, out var workItem) && Monitor.TryEnter(workItem))
             {
-                if (Monitor.TryEnter(workItem))
+                try
                 {
                     if (workItem.Status is ProcessStatus.Queued)
                     {
@@ -36,7 +36,9 @@ namespace ProcessWorkerV2
                         else
                             workItem.CancellationTokenSrc.Cancel();
                     }
-
+                }
+                finally
+                {
                     Monitor.Exit(workItem);
                 }
             }
