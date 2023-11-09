@@ -67,17 +67,14 @@ namespace ProcessWorkerV2
 
                     await item.ProcessMetadata.DoWorkAsync(item.ProcessMetadata.ProcessInfo.StoppingToken);
 
-                    if (item.ProcessMetadata.ProcessInfo.StoppingToken.IsCancellationRequested)
-                    {
-                        await item.Progress(ProcessStatus.Canceled);
-                        item.TaskCompletionSrc.TrySetCanceled();
-                    }
-                    else
-                    {
-                        await item.Progress(ProcessStatus.Done);
-                        item.TaskCompletionSrc.TrySetResult();
-                    }
+                    await item.Progress(ProcessStatus.Done);
+                    item.TaskCompletionSrc.TrySetResult();
                 }
+            }
+            catch (OperationCanceledException ex) when (ex.CancellationToken == item.CancellationTokenSrc.Token)
+            {
+                await item.Progress(ProcessStatus.Canceled);
+                item.TaskCompletionSrc.TrySetCanceled();
             }
             catch (Exception e)
             {
