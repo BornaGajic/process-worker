@@ -91,6 +91,8 @@ namespace ProcessWorkerV2
                         workItem.Status = newStatus;
                     }
                 }
+
+                // Save changes to persisted storage, etc.
             }
 
             await progressAsync(ProcessStatus.Queued);
