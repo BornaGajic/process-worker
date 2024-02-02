@@ -1,4 +1,4 @@
-﻿namespace ProcessWorkerV2;
+﻿namespace ProcessWorker.Model;
 
 internal class ProcessMetadata
 {
