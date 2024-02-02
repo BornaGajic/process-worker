@@ -1,13 +1,13 @@
 ﻿namespace ProcessWorker.Model;
 
-public record ProcessInfo
+public record ProcessWorkerInfo
 {
     public CancellationToken StoppingToken { get; init; }
 
     /// <summary>
     /// Asynchronously wait for process to finish
     /// </summary>
-    public Task WaitingToken { get; init; }
+    public Task Completion { get; init; }
 
     /// <summary>
     /// Uniquely identifies a process

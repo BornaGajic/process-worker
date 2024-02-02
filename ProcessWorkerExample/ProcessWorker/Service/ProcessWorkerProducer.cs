@@ -1,7 +1,9 @@
-﻿using System.Collections.Concurrent;
+﻿using ProcessWorker.Common;
+using ProcessWorker.Model;
+using System.Collections.Concurrent;
 using System.Threading.Channels;
 
-namespace ProcessWorkerV2
+namespace ProcessWorker.Service
 {
     internal class ProcessWorkerProducer : IProcessWorkerProducer
     {
@@ -13,6 +15,8 @@ namespace ProcessWorkerV2
         }
 
         public ChannelWriter<WorkItem> ChannelWriter { get; }
+        public Exception FatalException { get; internal set; }
+        public bool IsOperational => FatalException is null;
 
         public void CancelWorkItemAsync(Guid processId, int? millisecondsDelay = null)
         {
@@ -26,6 +30,7 @@ namespace ProcessWorkerV2
                         workItem.TaskCompletionSrc.TrySetCanceled();
                         workItem.Progress(ProcessStatus.Canceled);
                         _workItems.TryRemove(processId, out var _);
+                        workItem.Dispose();
                     }
                     else if (workItem.Status is ProcessStatus.Running)
                     {
@@ -44,16 +49,16 @@ namespace ProcessWorkerV2
             }
         }
 
-        public Task<ProcessWorkerInfo> EnqueueWorkItemAsync(Func<CancellationToken, Task> process)
+        public Task<ProcessWorkerInfo> EnqueueAsync(Func<CancellationToken, Task> process)
         {
-            return EnqueueWorkItemAsync(process, (_, _) => Task.CompletedTask);
+            return EnqueueAsync(process, (_, _) => Task.CompletedTask);
         }
 
-        public Task<ProcessWorkerInfo> EnqueueWorkItemAsync(Func<CancellationToken, Task> process, Func<Guid, ProcessStatus, Task> progressCallback)
+        public Task<ProcessWorkerInfo> EnqueueAsync(Func<CancellationToken, Task> process, Func<Guid, ProcessStatus, Task> progressCallback)
         {
             var state = new ProcessWorkerState();
 
-            return EnqueueWorkItemAsync(process, async (processId, newStatus) =>
+            return EnqueueAsync(process, async (processId, newStatus) =>
             {
                 await progressCallback(processId, newStatus);
 
@@ -61,7 +66,7 @@ namespace ProcessWorkerV2
                     state.StartTime = DateTime.UtcNow;
                 else if (newStatus is ProcessStatus.Queued)
                     state.QueuedAt = DateTime.UtcNow;
-                else if (newStatus is ProcessStatus.Done or ProcessStatus.Canceled or ProcessStatus.Failed)
+                else if (newStatus is ProcessStatus.Done or ProcessStatus.Canceled or ProcessStatus.Failed or ProcessStatus.Fatal)
                     state.EndTime = DateTime.UtcNow;
 
                 return state with
@@ -72,9 +77,14 @@ namespace ProcessWorkerV2
             });
         }
 
-        public async Task<ProcessWorkerInfo> EnqueueWorkItemAsync<TState>(Func<CancellationToken, Task> process, Func<Guid, ProcessStatus, Task<TState>> statusChangeCallback)
+        public async Task<ProcessWorkerInfo> EnqueueAsync<TState>(Func<CancellationToken, Task> process, Func<Guid, ProcessStatus, Task<TState>> statusChangeCallback)
             where TState : ProcessWorkerState
         {
+            if (!IsOperational)
+            {
+                throw new Exception("Process worker is down, see inner exception for details.", FatalException);
+            }
+
             var cancelTokenSource = new CancellationTokenSource();
             var taskCompletionSrc = new TaskCompletionSource();
 
@@ -86,13 +96,8 @@ namespace ProcessWorkerV2
 
                 if (_workItems.TryGetValue(processId, out var workItem))
                 {
-                    lock (workItem)
-                    {
-                        workItem.Status = newStatus;
-                    }
+                    workItem.Status = newStatus;
                 }
-
-                // Save changes to persisted storage, etc.
             }
 
             await progressAsync(ProcessStatus.Queued);
@@ -119,7 +124,10 @@ namespace ProcessWorkerV2
                         }
                         finally
                         {
-                            _workItems.TryRemove(processInfo.ProcessId, out var _);
+                            if (_workItems.TryRemove(processInfo.ProcessId, out var item))
+                            {
+                                item.Dispose();
+                            }
                         }
                     },
                     ProcessInfo = processInfo
@@ -132,6 +140,13 @@ namespace ProcessWorkerV2
             ChannelWriter.TryWrite(workItem);
 
             return processInfo;
+        }
+
+        internal void StopProducing(Exception ex)
+        {
+            FatalException = ex;
+            ChannelWriter.TryComplete();
+            _workItems.Clear();
         }
     }
 }
