@@ -1,4 +1,5 @@
-﻿using ProcessWorker.Common;
+﻿using Microsoft.Extensions.DependencyInjection;
+using ProcessWorker.Common;
 using ProcessWorker.Model;
 using System.Threading.Channels;
 
@@ -6,12 +7,12 @@ namespace ProcessWorker.Service
 {
     public static class ProcessWorker
     {
-        public static IProcessWorker Create(ProcessWorkerConfiguration configuration = default)
+        public static IProcessWorker Create(IServiceScopeFactory serviceScopeFactory, ProcessWorkerConfiguration configuration = default)
         {
             var unBoundedChannel = Channel.CreateUnbounded<WorkItem>();
 
-            var producer = new ProcessWorkerProducer(unBoundedChannel.Writer);
-            var consumer = new ProcessWorkerConsumer(unBoundedChannel.Reader, configuration);
+            var producer = new ProcessWorkerProducer(unBoundedChannel.Writer, serviceScopeFactory);
+            var consumer = new ProcessWorkerConsumer(unBoundedChannel.Reader, serviceScopeFactory, configuration);
 
             consumer.FatalErrorOccured += (sender, ex) => producer.StopProducing(ex);
             consumer.TryCreateConsumingThread();

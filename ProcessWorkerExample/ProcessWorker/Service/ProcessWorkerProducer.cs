@@ -1,4 +1,5 @@
-﻿using ProcessWorker.Common;
+﻿using Microsoft.Extensions.DependencyInjection;
+using ProcessWorker.Common;
 using ProcessWorker.Model;
 using System.Collections.Concurrent;
 using System.Threading.Channels;
@@ -8,33 +9,39 @@ namespace ProcessWorker.Service
     internal class ProcessWorkerProducer : IProcessWorkerProducer
     {
         protected readonly ConcurrentDictionary<Guid, WorkItem> _workItems = new();
+        private readonly IServiceScopeFactory _serviceScopeFactory;
 
-        public ProcessWorkerProducer(ChannelWriter<WorkItem> channelWriter)
+        public ProcessWorkerProducer(ChannelWriter<WorkItem> channelWriter, IServiceScopeFactory serviceScopeFactory)
         {
             ChannelWriter = channelWriter;
+            _serviceScopeFactory = serviceScopeFactory;
         }
 
         public ChannelWriter<WorkItem> ChannelWriter { get; }
         public Exception FatalException { get; internal set; }
         public bool IsOperational => FatalException is null;
 
-        public void CancelWorkItemAsync(Guid processId, int? millisecondsDelay = null)
+        private ConcurrentDictionary<Guid, WorkItem> CancellationLock { get; } = [];
+
+        public async Task CancelWorkItemAsync(Guid processId, int? millisecondsDelay = null)
         {
-            if (_workItems.TryGetValue(processId, out var workItem) && Monitor.TryEnter(workItem))
+            if (_workItems.TryGetValue(processId, out var workItem) && CancellationLock.TryAdd(processId, workItem))
             {
                 try
                 {
+                    using var scope = _serviceScopeFactory.CreateAsyncScope();
+
                     if (workItem.Status is ProcessStatus.Queued)
                     {
                         workItem.ProcessMetadata.IsCanceledBeforeRunning = true;
                         workItem.TaskCompletionSrc.TrySetCanceled();
-                        workItem.Progress(ProcessStatus.Canceled);
+                        await workItem.Progress(ProcessStatus.Canceled, scope.ServiceProvider);
                         _workItems.TryRemove(processId, out var _);
                         workItem.Dispose();
                     }
                     else if (workItem.Status is ProcessStatus.Running)
                     {
-                        workItem.Progress(ProcessStatus.CancellationRequested);
+                        await workItem.Progress(ProcessStatus.CancellationRequested, scope.ServiceProvider);
 
                         if (millisecondsDelay is not null)
                             workItem.CancellationTokenSrc.CancelAfter(millisecondsDelay.Value);
@@ -44,23 +51,26 @@ namespace ProcessWorker.Service
                 }
                 finally
                 {
-                    Monitor.Exit(workItem);
+                    CancellationLock.TryRemove(processId, out _);
                 }
             }
         }
 
-        public Task<ProcessWorkerInfo> EnqueueAsync(Func<CancellationToken, Task> process)
+        public Task<ProcessWorkerInfo> EnqueueAsync(Func<IServiceProvider, CancellationToken, ValueTask> process)
         {
-            return EnqueueAsync(process, (_, _) => Task.CompletedTask);
+            return EnqueueAsync(process, (_, _, _, _) => ValueTask.CompletedTask);
         }
 
-        public Task<ProcessWorkerInfo> EnqueueAsync(Func<CancellationToken, Task> process, Func<Guid, ProcessStatus, Task> progressCallback)
+        public Task<ProcessWorkerInfo> EnqueueAsync(
+            Func<IServiceProvider, CancellationToken, ValueTask> process,
+            Func<Guid, ProcessStatus, IServiceProvider, Exception, ValueTask> progressCallback
+        )
         {
             var state = new ProcessWorkerState();
 
-            return EnqueueAsync(process, async (processId, newStatus) =>
+            return EnqueueAsync(process, async (processId, newStatus, serviceProvider, exception) =>
             {
-                await progressCallback(processId, newStatus);
+                await progressCallback(processId, newStatus, serviceProvider, exception);
 
                 if (newStatus is ProcessStatus.Running)
                     state.StartTime = DateTime.UtcNow;
@@ -77,8 +87,10 @@ namespace ProcessWorker.Service
             });
         }
 
-        public async Task<ProcessWorkerInfo> EnqueueAsync<TState>(Func<CancellationToken, Task> process, Func<Guid, ProcessStatus, Task<TState>> statusChangeCallback)
-            where TState : ProcessWorkerState
+        public async Task<ProcessWorkerInfo> EnqueueAsync<TState>(
+            Func<IServiceProvider, CancellationToken, ValueTask> process,
+            Func<Guid, ProcessStatus, IServiceProvider, Exception, ValueTask<TState>> statusChangeCallback
+        ) where TState : ProcessWorkerState
         {
             if (!IsOperational)
             {
@@ -90,9 +102,9 @@ namespace ProcessWorker.Service
 
             var processId = Guid.NewGuid();
 
-            async Task progressAsync(ProcessStatus newStatus, Exception processException = null)
+            async Task progressAsync(ProcessStatus newStatus, IServiceProvider serviceProvider, Exception processException = null)
             {
-                var state = await statusChangeCallback(processId, newStatus);
+                var state = await statusChangeCallback(processId, newStatus, serviceProvider, processException);
 
                 if (_workItems.TryGetValue(processId, out var workItem))
                 {
@@ -100,7 +112,10 @@ namespace ProcessWorker.Service
                 }
             }
 
-            await progressAsync(ProcessStatus.Queued);
+            using (var scope = _serviceScopeFactory.CreateAsyncScope())
+            {
+                await progressAsync(ProcessStatus.Queued, scope.ServiceProvider);
+            }
 
             var processInfo = new ProcessWorkerInfo
             {
@@ -116,18 +131,15 @@ namespace ProcessWorker.Service
                 TaskCompletionSrc = taskCompletionSrc,
                 ProcessMetadata = new ProcessMetadata
                 {
-                    DoWorkAsync = async (stoppingToken) =>
+                    DoWorkAsync = async (serviceProvider, stoppingToken) =>
                     {
                         try
                         {
-                            await process(stoppingToken);
+                            await process(serviceProvider, stoppingToken);
                         }
                         finally
                         {
-                            if (_workItems.TryRemove(processInfo.ProcessId, out var item))
-                            {
-                                item.Dispose();
-                            }
+                            _workItems.TryRemove(processInfo.ProcessId, out var _);
                         }
                     },
                     ProcessInfo = processInfo

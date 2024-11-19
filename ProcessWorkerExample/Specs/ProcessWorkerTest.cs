@@ -3,24 +3,27 @@ using Microsoft.Extensions.DependencyInjection;
 using ProcessWorker.Common;
 using ProcessWorker.Model;
 using ProcessWorker.Startup;
+using Service = ProcessWorker.Service;
 using Xunit;
 
 namespace Specs
 {
     public class ProcessWorkerTest : TestSetup, IDisposable
     {
+        private readonly IServiceProvider _container;
         private readonly IProcessWorker _processWorkerMT;
         private readonly IProcessWorker _processWorkerST;
         private readonly IProcessWorkerProvider _provider;
+        private readonly IServiceScopeFactory _serviceScopeFactory;
 
         public ProcessWorkerTest()
         {
-            var container = SetupContainer(builder =>
+            _container = SetupContainer(builder =>
             {
                 builder.RegisterProcessWorker();
             });
-
-            _provider = container.GetRequiredService<IProcessWorkerProvider>();
+            _serviceScopeFactory = _container.GetRequiredService<IServiceScopeFactory>();
+            _provider = _container.GetRequiredService<IProcessWorkerProvider>();
             _processWorkerMT = _provider.GetOrCreateCached($"MT-{nameof(ProcessWorkerTest)}", new ProcessWorkerConfiguration
             {
                 Concurrency = 3
@@ -39,7 +42,7 @@ namespace Specs
             _processWorkerST.IsOperational.Should().BeFalse();
         }
 
-        [Fact(DisplayName = $"T01: MT-{nameof(ProcessWorker)}")]
+        [Fact(DisplayName = $"T01: MT-{nameof(Service.ProcessWorker)}")]
         public async Task T01()
         {
             int numOfIntegers = 10;
@@ -50,7 +53,7 @@ namespace Specs
             sumIntegersMtTest.Should().Be(expectedResult);
         }
 
-        [Fact(DisplayName = $"T02: ST-{nameof(ProcessWorker)}")]
+        [Fact(DisplayName = $"T02: ST-{nameof(Service.ProcessWorker)}")]
         public async Task T02()
         {
             int numOfIntegers = 10;
@@ -61,26 +64,26 @@ namespace Specs
             sumIntegersStTest.Should().Be(expectedResult);
         }
 
-        [Fact(DisplayName = $"T03: Cancel {nameof(ProcessWorker)}")]
+        [Fact(DisplayName = $"T03: Cancel {nameof(Service.ProcessWorker)}")]
         public async Task T03()
         {
-            using var processWorker = ProcessWorker.Service.ProcessWorker.Create(new ProcessWorkerConfiguration
+            using var processWorker = Service.ProcessWorker.Create(_serviceScopeFactory, new ProcessWorkerConfiguration
             {
                 Concurrency = 1
             });
 
-            var info = await processWorker.Producer.EnqueueAsync(async cancel =>
+            var info = await processWorker.Producer.EnqueueAsync(async (svc, cancellation) =>
             {
                 foreach (var item in Enumerable.Range(1, 20))
                 {
-                    cancel.ThrowIfCancellationRequested();
+                    cancellation.ThrowIfCancellationRequested();
                     await Task.Delay(500);
                 }
             });
 
             await Task.Delay(1_000);
 
-            processWorker.Producer.CancelWorkItemAsync(info.ProcessId, 250);
+            await processWorker.Producer.CancelWorkItemAsync(info.ProcessId, 250);
 
             var threwOperationCanceledException = false;
 
@@ -101,7 +104,7 @@ namespace Specs
         [Fact(DisplayName = $"T04: {nameof(ProcessWorker)} consumer completion")]
         public async Task T04()
         {
-            var processWorker = ProcessWorker.Service.ProcessWorker.Create(new ProcessWorkerConfiguration
+            var processWorker = Service.ProcessWorker.Create(_serviceScopeFactory, new ProcessWorkerConfiguration
             {
                 Concurrency = 1
             });
@@ -109,7 +112,7 @@ namespace Specs
             processWorker.IsOperational.Should().BeTrue();
 
             int result = 0;
-            var info = await processWorker.Producer.EnqueueAsync(async _ =>
+            var info = await processWorker.Producer.EnqueueAsync(async (svc, cancellation) =>
             {
                 await Task.Delay(500);
                 result = 42;
@@ -133,7 +136,7 @@ namespace Specs
 
             foreach (var item in Enumerable.Range(1, numOfIntegers))
             {
-                var info = await (useParallel ? _processWorkerMT : _processWorkerST).Producer.EnqueueAsync(async (cancelToken) =>
+                var info = await (useParallel ? _processWorkerMT : _processWorkerST).Producer.EnqueueAsync(async (svc, cancellation) =>
                 {
                     await Task.Yield();
 
