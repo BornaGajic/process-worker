@@ -2,10 +2,10 @@
 
 internal class WorkItem : IDisposable
 {
-    private readonly Func<ProcessStatus, Exception, Task> _progress;
+    private readonly Func<ProcessStatus, IServiceProvider, Exception, Task> _progress;
     private bool _disposed;
 
-    public WorkItem(Func<ProcessStatus, Exception, Task> progress)
+    public WorkItem(Func<ProcessStatus, IServiceProvider, Exception, Task> progress)
     {
         _progress = progress;
     }
@@ -17,11 +17,11 @@ internal class WorkItem : IDisposable
 
     public void Dispose() => Dispose(true);
 
-    public Task Progress(ProcessStatus newStatus, Exception processException = null)
+    public Task Progress(ProcessStatus newStatus, IServiceProvider serviceProvider, Exception processException = null)
     {
         Status = newStatus;
 
-        return _progress(newStatus, processException);
+        return _progress(newStatus, serviceProvider, processException);
     }
 
     protected virtual void Dispose(bool disposing)

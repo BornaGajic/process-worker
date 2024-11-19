@@ -1,4 +1,5 @@
-﻿using ProcessWorker.Common;
+﻿using Microsoft.Extensions.DependencyInjection;
+using ProcessWorker.Common;
 using ProcessWorker.Model;
 using System.Collections.Concurrent;
 
@@ -8,9 +9,13 @@ namespace ProcessWorker.Service
     {
         private static readonly ConcurrentDictionary<string, IProcessWorker> _store = new();
 
+        private readonly IServiceScopeFactory _serviceScopeFactory;
+
+        public ProcessWorkerProvider(IServiceScopeFactory serviceScopeFactory) => _serviceScopeFactory = serviceScopeFactory;
+
         public IProcessWorker GetOrCreateCached(string key, ProcessWorkerConfiguration configuration = default)
         {
-            return _store.GetOrAdd(key, ProcessWorker.Create(configuration ?? new()));
+            return _store.GetOrAdd(key, ProcessWorker.Create(_serviceScopeFactory, configuration ?? new()));
         }
 
         public bool Remove(string key)
