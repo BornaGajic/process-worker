@@ -132,7 +132,7 @@ namespace ProcessWorker.Service
             {
                 // Once the TaskCompletionSrc is GC'd the finalizer will not throw UnobservedTaskException if the user did not handle the exception.
                 // This means that all unhandled exceptions should be handled via Completion by awaiting the task.
-                // There are two cases where Unobserver can happen:
+                // There are two cases where UnobservedTaskException can happen:
                 // 1. The user handled the exception inside the callback, but rethrown it and did not handle it on the Completion object.
                 // 2. The user did not handle the exception inside the callback and did not handle the exception on the Completion object.
                 item.TaskCompletionSrc.Task.IgnoreUnobservedExceptions();

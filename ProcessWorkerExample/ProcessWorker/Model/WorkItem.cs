@@ -10,6 +10,8 @@ internal class WorkItem : IDisposable
         _progress = progress;
     }
 
+    ~WorkItem() => Dispose();
+
     public CancellationTokenSource CancellationTokenSrc { get; internal set; }
     public ProcessMetadata ProcessMetadata { get; init; }
     public ProcessStatus Status { get; set; }
@@ -30,7 +32,7 @@ internal class WorkItem : IDisposable
         {
             if (disposing)
             {
-                CancellationTokenSrc.Dispose();
+                CancellationTokenSrc?.Dispose();
                 CancellationTokenSrc = null;
             }
 

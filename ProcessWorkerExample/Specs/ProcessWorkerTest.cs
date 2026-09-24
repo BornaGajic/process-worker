@@ -1,4 +1,4 @@
-﻿using FluentAssertions;
+﻿using AwesomeAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using ProcessWorker.Common;
 using ProcessWorker.Model;
@@ -24,11 +24,11 @@ namespace Specs
             });
             _serviceScopeFactory = _container.GetRequiredService<IServiceScopeFactory>();
             _provider = _container.GetRequiredService<IProcessWorkerProvider>();
-            _processWorkerMT = _provider.GetOrCreateCached($"MT-{nameof(ProcessWorkerTest)}", new ProcessWorkerConfiguration
+            _processWorkerMT = _provider.GetOrCreate($"MT-{nameof(ProcessWorkerTest)}", new ProcessWorkerConfiguration
             {
                 Concurrency = 3
             });
-            _processWorkerST = _provider.GetOrCreateCached($"ST-{nameof(ProcessWorkerTest)}", new ProcessWorkerConfiguration
+            _processWorkerST = _provider.GetOrCreate($"ST-{nameof(ProcessWorkerTest)}", new ProcessWorkerConfiguration
             {
                 Concurrency = 1
             });
@@ -81,7 +81,7 @@ namespace Specs
                 }
             });
 
-            await Task.Delay(1_000);
+            await Task.Delay(1_000, TestContext.Current.CancellationToken);
 
             await processWorker.Producer.CancelWorkItemAsync(info.ProcessId, 250);
 

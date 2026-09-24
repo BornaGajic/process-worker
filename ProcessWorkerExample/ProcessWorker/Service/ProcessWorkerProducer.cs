@@ -35,7 +35,9 @@ namespace ProcessWorker.Service
                     {
                         workItem.ProcessMetadata.IsCanceledBeforeRunning = true;
                         workItem.TaskCompletionSrc.TrySetCanceled();
+
                         await workItem.Progress(ProcessStatus.Canceled, scope.ServiceProvider);
+
                         _workItems.TryRemove(processId, out var _);
                         workItem.Dispose();
                     }
@@ -46,7 +48,7 @@ namespace ProcessWorker.Service
                         if (millisecondsDelay is not null)
                             workItem.CancellationTokenSrc.CancelAfter(millisecondsDelay.Value);
                         else
-                            workItem.CancellationTokenSrc.Cancel();
+                            await workItem.CancellationTokenSrc.CancelAsync();
                     }
                 }
                 finally

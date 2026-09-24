@@ -13,7 +13,7 @@ namespace ProcessWorker.Service
 
         public ProcessWorkerProvider(IServiceScopeFactory serviceScopeFactory) => _serviceScopeFactory = serviceScopeFactory;
 
-        public IProcessWorker GetOrCreateCached(string key, ProcessWorkerConfiguration configuration = default)
+        public IProcessWorker GetOrCreate(string key, ProcessWorkerConfiguration configuration = default)
         {
             return _store.GetOrAdd(key, ProcessWorker.Create(_serviceScopeFactory, configuration ?? new()));
         }
