@@ -1,5 +1,6 @@
 ﻿using AwesomeAssertions;
 using Microsoft.Extensions.DependencyInjection;
+using System.Collections.Concurrent;
 using ProcessWorker.Common;
 using ProcessWorker.Model;
 using ProcessWorker.Startup;
@@ -126,6 +127,62 @@ namespace Specs
 
             result.Should().Be(42);
             processWorker.IsOperational.Should().BeFalse();
+        }
+
+        [Fact(DisplayName = $"T05: Cancel queued {nameof(Service.ProcessWorker)} item")]
+        public async Task T05()
+        {
+            using var processWorker = Service.ProcessWorker.Create(_serviceScopeFactory, new ProcessWorkerConfiguration
+            {
+                Concurrency = 1
+            });
+
+            // Occupies the only slot, so the next item stays queued.
+            var release = new TaskCompletionSource();
+            var blocker = await processWorker.Producer.EnqueueAsync(async (svc, cancellation) =>
+            {
+                await release.Task.WaitAsync(cancellation);
+            });
+
+            var queuedItemRan = false;
+            var statuses = new ConcurrentQueue<ProcessStatus>();
+
+            var queued = await processWorker.Producer.EnqueueAsync(
+                async (svc, cancellation) =>
+                {
+                    queuedItemRan = true;
+                    await Task.CompletedTask;
+                },
+                async (processId, status, svc, exception) =>
+                {
+                    // Slow reporting of the final status, so completing before it is reported would be visible below.
+                    if (status is ProcessStatus.Canceled)
+                        await Task.Delay(300);
+
+                    statuses.Enqueue(status);
+                }
+            );
+
+            var cancelTask = processWorker.Producer.CancelWorkItemAsync(queued.ProcessId);
+
+            Func<Task> awaitQueued = () => queued.Completion;
+
+            await awaitQueued.Should().ThrowAsync<OperationCanceledException>();
+
+            // The completion is released only after the final status has been reported.
+            statuses.Should().Contain(ProcessStatus.Canceled);
+
+            await cancelTask;
+
+            release.SetResult();
+            await blocker.Completion;
+
+            // Give the consumer the chance to pick up the canceled item, it must skip it.
+            await Task.Delay(250, TestContext.Current.CancellationToken);
+
+            queuedItemRan.Should().BeFalse();
+            statuses.Should().NotContain(ProcessStatus.Running);
+            processWorker.IsOperational.Should().BeTrue();
         }
 
         private async Task<int> SumFirstNIntegers(int numOfIntegers, bool useParallel)

@@ -94,7 +94,8 @@ namespace ProcessWorker.Service
 
         private static async Task RunWorkerAsync(IServiceScopeFactory serviceScopeFactory, WorkItem item)
         {
-            if (item.ProcessMetadata.IsCanceledBeforeRunning)
+            // A queued item that was canceled owns itself (it disposes and removes itself), so there is nothing to run or dispose here.
+            if (item.ProcessMetadata.IsCanceledBeforeRunning || !item.TryClaim())
             {
                 return;
             }
